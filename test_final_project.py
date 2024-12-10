@@ -329,9 +329,9 @@ calculate_and_write_results()
 
 API_URL = "https://api.electricitymap.org/v3/power-breakdown/history"
 TOKEN = "M4sgDfSxIUYYx"
-ZONES = ["US-MIDW-MISO", "US-MIDA-PJM","US-NY-NYIS","US-NE-ISNE","US-CENT-SWPP"]  # Add more zones as needed
+ZONES = ["US-MIDW-MISO", "US-MIDA-PJM", "US-NY-NYIS", "US-NE-ISNE", "US-CENT-SWPP"]
 
-def fetch_electricity_data(max_items=25):
+def fetch_electricity_map_data(max_items_per_zone=24):
     conn = sqlite3.connect('project_database.db')
     cur = conn.cursor()
 
@@ -361,17 +361,16 @@ def fetch_electricity_data(max_items=25):
     )
     ''')
 
-    items_inserted = 0
+    total_items_inserted = 0
 
     for zone in ZONES:
-        if items_inserted >= max_items:
-            break
+        zone_items_inserted = 0
         
         # Get last inserted datetime for this zone
         cur.execute("SELECT datetime FROM last_inserted_datetime WHERE zone = ?", (zone,))
         result = cur.fetchone()
         last_datetime = result[0] if result else None
-        print(f"Last datetime for {zone}: {last_datetime}")
+        print(f"Last datetime for {zone}: {last_datetime if last_datetime else 'None'}")
 
         # Fetch data from API
         headers = {"auth-token": TOKEN}
@@ -384,14 +383,16 @@ def fetch_electricity_data(max_items=25):
 
             # Insert new data into database
             for entry in reversed(data):  # Reverse to process oldest first
-                if items_inserted >= max_items:
+                if zone_items_inserted >= max_items_per_zone:
                     break
                 
                 current_datetime = entry.get("datetime")
-                if last_datetime is None or current_datetime > last_datetime:
-                    power = entry.get("powerConsumptionBreakdown", {})
-                    print(f"Inserting: {zone}, {current_datetime}")
-                    
+                if not current_datetime:
+                    continue
+
+                power = entry.get("powerConsumptionBreakdown", {})
+                
+                try:
                     cur.execute('''
                     INSERT OR IGNORE INTO electricity_map_data 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -409,17 +410,28 @@ def fetch_electricity_data(max_items=25):
                         power.get("oil", 0),
                         power.get("unknown", 0)
                     ))
-                    items_inserted += 1
+                    zone_items_inserted += 1
+                    total_items_inserted += 1
                     last_datetime = current_datetime
-
+                except sqlite3.Error as e:
+                    print(f"Database error for {zone}, {current_datetime}: {e}")
+            
             # Update last inserted datetime
-            cur.execute('''
-            INSERT OR REPLACE INTO last_inserted_datetime (zone, datetime) VALUES (?, ?)
-            ''', (zone, last_datetime))
-        
+            if last_datetime:
+                cur.execute('''
+                INSERT OR REPLACE INTO last_inserted_datetime (zone, datetime) VALUES (?, ?)
+                ''', (zone, last_datetime))
         else:
-            print(f"Error fetching data for zone {zone}: {response.status_code}")
+            print(f"Error fetching data for zone {zone}: {response.status_code} - {response.text}")
+
+        # Ensure only the inserted count is displayed
+        print(f"Inserted {zone_items_inserted} items for zone {zone}")
 
     conn.commit()
     conn.close()
-    print(f"Inserted {items_inserted} items into electricity_map_data")
+    print(f"Inserted {total_items_inserted} items into electricity_map_data")
+
+if __name__ == "__main__":
+    print("Fetching electricity map data...")
+    fetch_electricity_map_data()  # Explicitly call the function to fetch electricity data
+    print("Electricity map data processing complete.")
