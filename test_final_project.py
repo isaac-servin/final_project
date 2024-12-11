@@ -6,6 +6,8 @@ import seaborn as sns
 import json
 import pandas as pd
 import os
+from datetime import datetime
+import time
 
 def fetch_eia_data(url, table_name, num_cols):
     response = requests.get(url)
@@ -224,15 +226,13 @@ def load_weather_data(json_file, max_items=25):
         date TEXT PRIMARY KEY,
         temperature_2m_max REAL,
         temperature_2m_min REAL
-    )
-    ''')
+    )''')
 
     cur.execute('''
     CREATE TABLE IF NOT EXISTS last_inserted_date (
         id INTEGER PRIMARY KEY,
         date TEXT
-    )
-    ''')
+    )''')
 
     cur.execute("SELECT date FROM last_inserted_date WHERE id = 1")
     result = cur.fetchone()
@@ -249,7 +249,9 @@ def load_weather_data(json_file, max_items=25):
     items_inserted = 0
     start_index = dates.index(last_date) + 1 if last_date in dates else 0
 
-    for i in range(start_index, min(len(dates), start_index + max_items)):
+    for i in range(start_index, len(dates)):
+        if items_inserted >= max_items:
+            break
         cur.execute('''
         INSERT OR IGNORE INTO weather_data VALUES (?, ?, ?)
         ''', (dates[i], max_temps[i], min_temps[i]))
@@ -263,6 +265,7 @@ def load_weather_data(json_file, max_items=25):
 
     conn.commit()
     conn.close()
+
     print(f"Inserted {items_inserted} items into weather_data")
 
 # Call the function to load data
@@ -351,50 +354,46 @@ def fetch_electricity_map_data(max_items_per_zone=24):
         oil REAL,
         unknown REAL,
         PRIMARY KEY (zone, datetime)
-    )
-    ''')
+    )''')
 
     cur.execute('''
     CREATE TABLE IF NOT EXISTS last_inserted_datetime (
         zone TEXT PRIMARY KEY,
         datetime TEXT
-    )
-    ''')
+    )''')
 
     total_items_inserted = 0
-
     for zone in ZONES:
-        zone_items_inserted = 0
-        
-        # Get last inserted datetime for this zone
         cur.execute("SELECT datetime FROM last_inserted_datetime WHERE zone = ?", (zone,))
         result = cur.fetchone()
         last_datetime = result[0] if result else None
-        print(f"Last datetime for {zone}: {last_datetime if last_datetime else 'None'}")
 
-        # Fetch data from API
         headers = {"auth-token": TOKEN}
         params = {"zone": zone}
+        if last_datetime:
+            cur.execute('''
+            INSERT OR REPLACE INTO last_inserted_datetime (zone, datetime) VALUES (?, ?)
+            ''', (zone, last_datetime))
+            #ORIGINAL - params["start"] = last_datetime
+
         response = requests.get(API_URL, headers=headers, params=params)
-        
+
         if response.status_code == 200:
             data = response.json().get("history", [])
-            print(f"Fetched {len(data)} entries for zone {zone}")
+            zone_items_inserted = 0
 
-            # Insert new data into database
-            for entry in reversed(data):  # Reverse to process oldest first
+            for entry in reversed(data):
                 if zone_items_inserted >= max_items_per_zone:
                     break
                 
                 current_datetime = entry.get("datetime")
-                if not current_datetime:
+                if not current_datetime or (last_datetime and current_datetime <= last_datetime):
                     continue
 
                 power = entry.get("powerConsumptionBreakdown", {})
-                
                 try:
                     cur.execute('''
-                    INSERT OR IGNORE INTO electricity_map_data 
+                    INSERT OR IGNORE INTO electricity_map_data
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (
                         zone,
@@ -410,22 +409,21 @@ def fetch_electricity_map_data(max_items_per_zone=24):
                         power.get("oil", 0),
                         power.get("unknown", 0)
                     ))
-                    zone_items_inserted += 1
-                    total_items_inserted += 1
-                    last_datetime = current_datetime
+                    if cur.rowcount > 0:
+                        zone_items_inserted += 1
+                        total_items_inserted += 1
+                        last_datetime = current_datetime
                 except sqlite3.Error as e:
                     print(f"Database error for {zone}, {current_datetime}: {e}")
-            
-            # Update last inserted datetime
-            if last_datetime:
+
+            if data:
                 cur.execute('''
                 INSERT OR REPLACE INTO last_inserted_datetime (zone, datetime) VALUES (?, ?)
-                ''', (zone, last_datetime))
+                ''', (zone, data[0].get("datetime")))
+
+            print(f"Inserted {zone_items_inserted} items for zone {zone}")
         else:
             print(f"Error fetching data for zone {zone}: {response.status_code} - {response.text}")
-
-        # Ensure only the inserted count is displayed
-        print(f"Inserted {zone_items_inserted} items for zone {zone}")
 
     conn.commit()
     conn.close()
@@ -433,5 +431,5 @@ def fetch_electricity_map_data(max_items_per_zone=24):
 
 if __name__ == "__main__":
     print("Fetching electricity map data...")
-    fetch_electricity_map_data()  # Explicitly call the function to fetch electricity data
+    fetch_electricity_map_data() 
     print("Electricity map data processing complete.")
