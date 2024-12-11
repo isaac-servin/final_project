@@ -10,21 +10,62 @@ from datetime import datetime
 import time
 
 def fetch_eia_data(url, table_name, num_cols):
+    conn = sqlite3.connect('project_database.db')
+
+    cur = conn.cursor()
+    # Create a table to track the last processed index for different tables
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS LastProcessed (
+        table_name TEXT PRIMARY KEY,
+        last_index INTEGER DEFAULT 0
+    )''')
+    conn.commit()
+
     response = requests.get(url)
     soup = BeautifulSoup(response.content, 'html.parser')
     cells = soup.find_all('td', class_='r t sel-2 sel-13 data sel-22')
     
+    # Retrieve the last saved index from which to start processing data
+    last_index = get_last_saved_index(table_name, conn)
     data = []
-    for i in range(0, min(25 * num_cols, len(cells)), num_cols):
+
+    # Process data in chunks based on the number of columns in the data set
+    for i in range(last_index * num_cols, min(len(cells), (last_index + 25) * num_cols), num_cols):
         row_data = [cell.get_text(strip=True) for cell in cells[i:i + num_cols]]
-        data.append(row_data)
-    
+
+        # Validate if the fetched row has the correct number of columns
+        if len(row_data) == num_cols:
+            data.append(row_data)
+        else:
+            print(f"Skipping row due to mismatched columns: {row_data}")
+
+    # Update the last processed index 
+    update_last_index(table_name, last_index + len(data), conn)
+    conn.close()
     return data
 
+# Retrieve the last saved index for a specific table 
+def get_last_saved_index(table_name, conn):
+    cur = conn.cursor()
+    cur.execute("SELECT last_index FROM LastProcessed WHERE table_name = ?", (table_name,))
+    result = cur.fetchone()
+    if result is None:
+        # Initialize last index if not present
+        cur.execute("INSERT INTO LastProcessed (table_name, last_index) VALUES (?, ?)", (table_name, 0))
+        conn.commit()
+        return 0
+    return result[0]
+
+# Update the last index 
+def update_last_index(table_name, last_index, conn):
+    cur = conn.cursor()
+    cur.execute("UPDATE LastProcessed SET last_index = ? WHERE table_name = ?", (last_index, table_name))
+    conn.commit()
+    
 def store_data(data, table_name):
     conn = sqlite3.connect('project_database.db')
     cur = conn.cursor()
-    
+    # Ensure tables exist
     if table_name == 'eia_data':
         cur.execute('''
         CREATE TABLE IF NOT EXISTS eia_data (
@@ -356,6 +397,7 @@ def fetch_electricity_map_data(max_items_per_zone=24):
         PRIMARY KEY (zone, datetime)
     )''')
 
+    # Create table to track last inserted datetime for each zone
     cur.execute('''
     CREATE TABLE IF NOT EXISTS last_inserted_datetime (
         zone TEXT PRIMARY KEY,
@@ -364,6 +406,7 @@ def fetch_electricity_map_data(max_items_per_zone=24):
 
     total_items_inserted = 0
     for zone in ZONES:
+        # Retrieve the last datetime data was inserted for the zone
         cur.execute("SELECT datetime FROM last_inserted_datetime WHERE zone = ?", (zone,))
         result = cur.fetchone()
         last_datetime = result[0] if result else None
@@ -375,6 +418,7 @@ def fetch_electricity_map_data(max_items_per_zone=24):
             INSERT OR REPLACE INTO last_inserted_datetime (zone, datetime) VALUES (?, ?)
             ''', (zone, last_datetime))
             #ORIGINAL - params["start"] = last_datetime
+            # Modify the query paramter if a last datetime exists 
 
         response = requests.get(API_URL, headers=headers, params=params)
 
@@ -382,6 +426,7 @@ def fetch_electricity_map_data(max_items_per_zone=24):
             data = response.json().get("history", [])
             zone_items_inserted = 0
 
+            # Reverse to handle from oldest to newest
             for entry in reversed(data):
                 if zone_items_inserted >= max_items_per_zone:
                     break
@@ -392,6 +437,7 @@ def fetch_electricity_map_data(max_items_per_zone=24):
 
                 power = entry.get("powerConsumptionBreakdown", {})
                 try:
+                    # Insert data into data table, ignoring duplicates
                     cur.execute('''
                     INSERT OR IGNORE INTO electricity_map_data
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -416,6 +462,7 @@ def fetch_electricity_map_data(max_items_per_zone=24):
                 except sqlite3.Error as e:
                     print(f"Database error for {zone}, {current_datetime}: {e}")
 
+            # Update last inserted datetime after processing data
             if data:
                 cur.execute('''
                 INSERT OR REPLACE INTO last_inserted_datetime (zone, datetime) VALUES (?, ?)
@@ -430,6 +477,7 @@ def fetch_electricity_map_data(max_items_per_zone=24):
     print(f"Inserted {total_items_inserted} items into electricity_map_data")
 
 if __name__ == "__main__":
+    # Initate fetching and processing 
     print("Fetching electricity map data...")
     fetch_electricity_map_data() 
     print("Electricity map data processing complete.")
