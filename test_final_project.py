@@ -124,6 +124,36 @@ def store_data(data, table_name):
     conn.close()
     conn.close()
 
+def fetch_data_from_db():
+
+    conn = sqlite3.connect('project_database.db')
+    
+    eia_query = "SELECT * FROM eia_data"
+    electricity_query = "SELECT * FROM electricity_data"
+    
+    eia_df = pd.read_sql_query(eia_query, conn)
+    electricity_df = pd.read_sql_query(electricity_query, conn)
+    
+    conn.close()
+
+    # Convert numeric columns in electricity_df
+    numeric_columns = ['Residential', 'Commercial', 'Industrial', 'Transportation']
+    electricity_df[numeric_columns] = electricity_df[numeric_columns].apply(pd.to_numeric, errors='coerce')
+
+    # Calculate total consumption
+    total_consumption = electricity_df[numeric_columns].sum()
+
+    return eia_df, electricity_df, total_consumption
+
+
+
+
+avg_production= eia_df[avg_production].mean()
+
+
+
+
+
 def visualize_data():
     conn = sqlite3.connect('project_database.db')
 
@@ -164,6 +194,14 @@ def visualize_data():
     plt.savefig('petroleum_production_bar_seaborn.png')
     plt.show()
 
+    with open('calculations.txt', 'w') as f:
+        total_consumption = electricity_df[numeric_columns].sum()
+        f.write("Average Energy Production by Source:\n")
+        f.write(str(avg_production))
+        f.write("\n\nTotal Electricity Consumption by Sector:\n")
+        f.write(str(total_consumption))
+eia_df, electricity_df, total_consumption = fetch_data_from_db()
+
 if __name__ == "__main__":
     urls = [
         'https://www.eia.gov/electricity/annual/html/epa_04_02_a.html',
@@ -180,46 +218,21 @@ if __name__ == "__main__":
 
     visualize_data()
 
-def fetch_data_from_db():
-
-    conn = sqlite3.connect('project_database.db')
-    
-    eia_query = "SELECT * FROM eia_data"
-    electricity_query = "SELECT * FROM electricity_data"
-    
-    eia_df = pd.read_sql_query(eia_query, conn)
-    electricity_df = pd.read_sql_query(electricity_query, conn)
-    
-    conn.close()
-
-    # Convert numeric columns in electricity_df
-    numeric_columns = ['Residential', 'Commercial', 'Industrial', 'Transportation']
-    electricity_df[numeric_columns] = electricity_df[numeric_columns].apply(pd.to_numeric, errors='coerce')
-
-    # Calculate total consumption
-    total_consumption = electricity_df[numeric_columns].sum()
-
-    return eia_df, electricity_df, total_consumption
 
     # Write calculations to a file
-    with open('calculations.txt', 'w') as f:
-        f.write("Average Energy Production by Source:\n")
-        f.write(str(avg_production))
-        f.write("\n\nTotal Electricity Consumption by Sector:\n")
-        f.write(str(total_consumption))
-eia_df, electricity_df, total_consumption = fetch_data_from_db()
+
 
 
 if __name__ == "__main__":
     # Fetched individual tables 
     eia_df, electricity_df, total_consumption = fetch_data_from_db()
-    
 
     #calculate_and_visualize(eia_df, electricity_df)
     print("Data processing and visualization complete.")
 
 # In your main code
 eia_df, electricity_df, total_consumption = fetch_data_from_db()
+
 print("Data processing and visualization complete.")
 
 
