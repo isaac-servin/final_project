@@ -133,24 +133,18 @@ def fetch_data_from_db():
     
     eia_df = pd.read_sql_query(eia_query, conn)
     electricity_df = pd.read_sql_query(electricity_query, conn)
-    
-    conn.close()
 
     # Convert numeric columns in electricity_df
     numeric_columns = ['Residential', 'Commercial', 'Industrial', 'Transportation']
     electricity_df[numeric_columns] = electricity_df[numeric_columns].apply(pd.to_numeric, errors='coerce')
 
+    avg_production = eia_df[['Coal', 'Petroleum', 'Natural_Gas', 'Nuclear', 'Hydroelectric_Conventional', 'Other_Renewable_Sources']].mean(numeric_only=True)
+
     # Calculate total consumption
     total_consumption = electricity_df[numeric_columns].sum()
 
-    return eia_df, electricity_df, total_consumption
-
-
-
-
-avg_production= eia_df[avg_production].mean()
-
-
+    conn.close()
+    return eia_df, electricity_df, total_consumption, avg_production
 
 
 
@@ -194,13 +188,14 @@ def visualize_data():
     plt.savefig('petroleum_production_bar_seaborn.png')
     plt.show()
 
+    
+
     with open('calculations.txt', 'w') as f:
         total_consumption = electricity_df[numeric_columns].sum()
         f.write("Average Energy Production by Source:\n")
         f.write(str(avg_production))
         f.write("\n\nTotal Electricity Consumption by Sector:\n")
         f.write(str(total_consumption))
-eia_df, electricity_df, total_consumption = fetch_data_from_db()
 
 if __name__ == "__main__":
     urls = [
@@ -216,6 +211,9 @@ if __name__ == "__main__":
     
     print("Data gathering and storage complete.")
 
+    eia_df, electricity_df, total_consumption, avg_production = fetch_data_from_db()
+
+
     visualize_data()
 
 
@@ -225,13 +223,13 @@ if __name__ == "__main__":
 
 if __name__ == "__main__":
     # Fetched individual tables 
-    eia_df, electricity_df, total_consumption = fetch_data_from_db()
+    eia_df, electricity_df, total_consumption, avg_production = fetch_data_from_db()
 
     #calculate_and_visualize(eia_df, electricity_df)
     print("Data processing and visualization complete.")
 
 # In your main code
-eia_df, electricity_df, total_consumption = fetch_data_from_db()
+eia_df, electricity_df, total_consumption, avg_production = fetch_data_from_db()
 
 print("Data processing and visualization complete.")
 
