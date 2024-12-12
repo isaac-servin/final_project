@@ -65,6 +65,7 @@ def update_last_index(table_name, last_index, conn):
 def store_data(data, table_name):
     conn = sqlite3.connect('project_database.db')
     cur = conn.cursor()
+    
     # Ensure tables exist
     if table_name == 'eia_data':
         cur.execute('''
@@ -116,6 +117,11 @@ def store_data(data, table_name):
             ''', row)
     
     conn.commit()
+
+    cur.execute("SELECT COUNT(*) FROM eia_data")
+    print(f"Rows in eia_data: {cur.fetchone()[0]}")
+
+    conn.close()
     conn.close()
 
 def visualize_data():
@@ -126,8 +132,13 @@ def visualize_data():
     electricity_query = "SELECT Year, Residential, Commercial, Industrial, Transportation FROM electricity_data"
 
     # Data into Pandas DataFrames
-    eia_df = pd.read_sql_query(eia_query, conn)
-    electricity_df = pd.read_sql_query(electricity_query, conn)
+    try:
+        eia_df = pd.read_sql_query(eia_query, conn)
+        electricity_df = pd.read_sql_query(electricity_query, conn)
+    except Exception as e:
+        print("Error fetching data for visualization:", e)
+        conn.close()
+        return
 
     conn.close()
 
@@ -155,7 +166,6 @@ def visualize_data():
     plt.savefig('petroleum_production_bar.png')
     plt.show()
 
-visualize_data()
 if __name__ == "__main__":
     urls = [
         'https://www.eia.gov/electricity/annual/html/epa_04_02_a.html',
@@ -169,6 +179,8 @@ if __name__ == "__main__":
         store_data(data, table_name)
     
     print("Data gathering and storage complete.")
+
+    visualize_data()
 
 def fetch_data_from_db():
 
