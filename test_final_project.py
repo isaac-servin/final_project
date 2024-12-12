@@ -118,6 +118,44 @@ def store_data(data, table_name):
     conn.commit()
     conn.close()
 
+def visualize_data():
+    conn = sqlite3.connect('project_database.db')
+
+    # Fetch only relevant columns
+    eia_query = "SELECT Year, Petroleum FROM eia_data"
+    electricity_query = "SELECT Year, Residential, Commercial, Industrial, Transportation FROM electricity_data"
+
+    # Data into Pandas DataFrames
+    eia_df = pd.read_sql_query(eia_query, conn)
+    electricity_df = pd.read_sql_query(electricity_query, conn)
+
+    conn.close()
+
+    # Convert columns to numeric
+    eia_df['Year'] = pd.to_numeric(eia_df['Year'], errors='coerce')
+    eia_df['Petroleum'] = pd.to_numeric(eia_df['Petroleum'], errors='coerce')
+
+    electricity_df['Year'] = pd.to_numeric(electricity_df['Year'], errors='coerce')
+    numeric_columns = ['Residential', 'Commercial', 'Industrial', 'Transportation']
+    electricity_df[numeric_columns] = electricity_df[numeric_columns].apply(pd.to_numeric, errors='coerce')
+
+    eia_df = eia_df.dropna(subset=['Petroleum'])
+
+    # Merge on Year
+    merged_data = pd.merge(eia_df, electricity_df, on='Year', how='inner')
+
+    # Plot Petroleum over the years
+    plt.figure(figsize=(10, 6))
+    plt.bar(merged_data['Year'], merged_data['Petroleum'], color='orange', alpha=0.8)
+    plt.title('Petroleum Production Over the Years')
+    plt.xlabel('Year')
+    plt.ylabel('Energy Production (Megawatts)')
+    plt.grid(axis='y', linestyle='--', alpha=0.6)
+    plt.tight_layout()
+    plt.savefig('petroleum_production_bar.png')
+    plt.show()
+
+visualize_data()
 if __name__ == "__main__":
     urls = [
         'https://www.eia.gov/electricity/annual/html/epa_04_02_a.html',
@@ -198,7 +236,10 @@ eia_df, electricity_df, total_consumption = fetch_data_from_db()
 
 
 if __name__ == "__main__":
+    # Fetched individual tables 
     eia_df, electricity_df, total_consumption = fetch_data_from_db()
+    
+
     calculate_and_visualize(eia_df, electricity_df)
     print("Data processing and visualization complete.")
 
@@ -406,7 +447,7 @@ def fetch_electricity_map_data(max_items_per_zone=24):
 
     total_items_inserted = 0
     for zone in ZONES:
-        # Retrieve the last datetime data was inserted for the zone
+        # Retrieve the last datetime data was inserted for the zone - problem was our zones were overlapping + a lack of data (24hrs)
         cur.execute("SELECT datetime FROM last_inserted_datetime WHERE zone = ?", (zone,))
         result = cur.fetchone()
         last_datetime = result[0] if result else None
@@ -417,7 +458,6 @@ def fetch_electricity_map_data(max_items_per_zone=24):
             cur.execute('''
             INSERT OR REPLACE INTO last_inserted_datetime (zone, datetime) VALUES (?, ?)
             ''', (zone, last_datetime))
-            #ORIGINAL - params["start"] = last_datetime
             # Modify the query paramter if a last datetime exists 
 
         response = requests.get(API_URL, headers=headers, params=params)
