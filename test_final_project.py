@@ -9,11 +9,11 @@ import os
 from datetime import datetime
 import time
 
+#DON"T TOUCH 
+# Track the last processed idata
 def fetch_eia_data(url, table_name, num_cols):
     conn = sqlite3.connect('project_database.db')
-
     cur = conn.cursor()
-    # Create a table to track the last processed index for different tables
     cur.execute('''
     CREATE TABLE IF NOT EXISTS LastProcessed (
         table_name TEXT PRIMARY KEY,
@@ -24,53 +24,54 @@ def fetch_eia_data(url, table_name, num_cols):
     response = requests.get(url)
     soup = BeautifulSoup(response.content, 'html.parser')
     cells = soup.find_all('td', class_='r t sel-2 sel-13 data sel-22')
-    
-    # Retrieve the last saved index from which to start processing data
+
+    # Retrieve the last procesed index
     last_index = get_last_saved_index(table_name, conn)
     data = []
 
-    # Process data in chunks based on the number of columns in the data set
     for i in range(last_index * num_cols, min(len(cells), (last_index + 25) * num_cols), num_cols):
-        row_data = [cell.get_text(strip=True) for cell in cells[i:i + num_cols]]
-
-        # Validate if the fetched row has the correct number of columns
+        #  Process data in rows starting from the last saved index
+        row_data = []
+        for cell in cells[i:i + num_cols]:
+            try:
+                numeric_value = float(cell.get_text(strip=True).replace(',', ''))
+                row_data.append(numeric_value)
+            except ValueError:
+                row_data.append(None)  
+        
         if len(row_data) == num_cols:
             data.append(row_data)
         else:
             print(f"Skipping row due to mismatched columns: {row_data}")
 
-    # Update the last processed index 
     update_last_index(table_name, last_index + len(data), conn)
     conn.close()
     return data
 
-# Retrieve the last saved index for a specific table 
 def get_last_saved_index(table_name, conn):
     cur = conn.cursor()
     cur.execute("SELECT last_index FROM LastProcessed WHERE table_name = ?", (table_name,))
     result = cur.fetchone()
     if result is None:
-        # Initialize last index if not present
         cur.execute("INSERT INTO LastProcessed (table_name, last_index) VALUES (?, ?)", (table_name, 0))
         conn.commit()
         return 0
     return result[0]
 
-# Update the last index 
 def update_last_index(table_name, last_index, conn):
     cur = conn.cursor()
     cur.execute("UPDATE LastProcessed SET last_index = ? WHERE table_name = ?", (last_index, table_name))
     conn.commit()
-    
+
 def store_data(data, table_name):
     conn = sqlite3.connect('project_database.db')
     cur = conn.cursor()
-    
-    # Ensure tables exist
+
+    #FIX THIS fOR ID/YEar
     if table_name == 'eia_data':
         cur.execute('''
         CREATE TABLE IF NOT EXISTS eia_data (
-            id INTEGER PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             Year INTEGER,
             Coal REAL,
             Petroleum REAL,
@@ -83,21 +84,18 @@ def store_data(data, table_name):
             Other_Energy_Sources REAL,
             Utility_Total REAL,
             Estimated_Photovoltaic REAL
-        )
-        ''')
-        
-        for row in data:
-            cur.execute('''
-            INSERT OR IGNORE INTO eia_data (Year, Coal, Petroleum, Natural_Gas, Other_Fossil_Gas, Nuclear, 
-            Hydroelectric_Conventional, Other_Renewable_Sources, Hydroelectric_Pumped_Storage, 
-            Other_Energy_Sources, Utility_Total, Estimated_Photovoltaic)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', row)
-    
+        )''')
+        # Inserting data into eia_data table
+        cur.executemany('''
+        INSERT INTO eia_data (Year, Coal, Petroleum, Natural_Gas, Other_Fossil_Gas, Nuclear, 
+        Hydroelectric_Conventional, Other_Renewable_Sources, Hydroelectric_Pumped_Storage, 
+        Other_Energy_Sources, Utility_Total, Estimated_Photovoltaic)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', data)
+
     elif table_name == 'electricity_data':
         cur.execute('''
         CREATE TABLE IF NOT EXISTS electricity_data (
-            id INTEGER PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             Year INTEGER,
             Residential REAL,
             Commercial REAL,
@@ -106,49 +104,54 @@ def store_data(data, table_name):
             Total REAL,
             Direct_Use REAL,
             Total_End_Use REAL
-        )
-        ''')
-        
-        for row in data:
-            cur.execute('''
-            INSERT OR IGNORE INTO electricity_data (Year, Residential, Commercial, Industrial, Transportation, 
-            Total, Direct_Use, Total_End_Use)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', row)
-    
+        )''')
+        # Inserting data into electricity_data table
+        cur.executemany('''
+        INSERT INTO electricity_data (Year, Residential, Commercial, Industrial, Transportation, 
+        Total, Direct_Use, Total_End_Use)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', data)
+
     conn.commit()
-
-    cur.execute("SELECT COUNT(*) FROM eia_data")
-    print(f"Rows in eia_data: {cur.fetchone()[0]}")
-
-    conn.close()
     conn.close()
 
+# DON"T TOUCH
 def fetch_data_from_db():
-
     conn = sqlite3.connect('project_database.db')
-    
-    eia_query = "SELECT * FROM eia_data"
-    electricity_query = "SELECT * FROM electricity_data"
-    
-    eia_df = pd.read_sql_query(eia_query, conn)
-    electricity_df = pd.read_sql_query(electricity_query, conn)
-
-    # Convert numeric columns in electricity_df
-    numeric_columns = ['Residential', 'Commercial', 'Industrial', 'Transportation']
-    electricity_df[numeric_columns] = electricity_df[numeric_columns].apply(pd.to_numeric, errors='coerce')
-
-    avg_production = eia_df[['Coal', 'Petroleum', 'Natural_Gas', 'Nuclear', 'Hydroelectric_Conventional', 'Other_Renewable_Sources']].mean(numeric_only=True)
-
-    # Calculate total consumption
-    total_consumption = electricity_df[numeric_columns].sum()
-
+    eia_df = pd.read_sql_query("SELECT * FROM eia_data", conn) # Load
+    electricity_df = pd.read_sql_query("SELECT * FROM electricity_data", conn) # Load
     conn.close()
-    return eia_df, electricity_df, total_consumption, avg_production
+    return eia_df, electricity_df
 
+def write_calculations(eia_df, electricity_df):
+    if eia_df.empty or electricity_df.empty:
+        print("DataFrames are empty. Skipping writing to file.")
+        return
 
+    # Specifying columns for energy production and consumption
+    energy_columns = ['Coal', 'Petroleum', 'Natural_Gas', 'Other_Fossil_Gas', 'Nuclear', 
+                      'Hydroelectric_Conventional', 'Other_Renewable_Sources', 'Hydroelectric_Pumped_Storage', 
+                      'Other_Energy_Sources', 'Utility_Total', 'Estimated_Photovoltaic']
+    consumption_columns = ['Residential', 'Commercial', 'Industrial', 'Transportation', 
+                           'Total', 'Direct_Use', 'Total_End_Use']
 
-def visualize_data():
+    # Converting energy and consumption data to numeric
+    eia_df[energy_columns] = eia_df[energy_columns].apply(pd.to_numeric, errors='coerce')
+    electricity_df[consumption_columns] = electricity_df[consumption_columns].apply(pd.to_numeric, errors='coerce')
+
+    # Calculating averages and sums
+    avg_production = eia_df[energy_columns].mean(skipna=True)
+    total_consumption = electricity_df[consumption_columns].sum(skipna=True)
+
+    with open('calculations.txt', 'w') as f:
+        f.write("Average Energy Production by Source:\n")
+        for index, value in avg_production.iteritems():
+            f.write(f"{index}: {value:.2f}\n")
+
+        f.write("Total Electricity Consumption by Sector:\n")
+        for index, value in total_consumption.iteritems():
+            f.write(f"{index}: {value:.2f}\n")
+
+def visualize_data(eia_df, electricity_df):
     conn = sqlite3.connect('project_database.db')
 
     # Fetch only relevant columns
@@ -188,15 +191,6 @@ def visualize_data():
     plt.savefig('petroleum_production_bar_seaborn.png')
     plt.show()
 
-    
-
-    with open('calculations.txt', 'w') as f:
-        total_consumption = electricity_df[numeric_columns].sum()
-        f.write("Average Energy Production by Source:\n")
-        f.write(str(avg_production))
-        f.write("\n\nTotal Electricity Consumption by Sector:\n")
-        f.write(str(total_consumption))
-
 if __name__ == "__main__":
     urls = [
         'https://www.eia.gov/electricity/annual/html/epa_04_02_a.html',
@@ -204,35 +198,13 @@ if __name__ == "__main__":
     ]
     table_names = ['eia_data', 'electricity_data']
     num_cols = [12, 8]
-    
     for url, table_name, cols in zip(urls, table_names, num_cols):
         data = fetch_eia_data(url, table_name, cols)
         store_data(data, table_name)
-    
-    print("Data gathering and storage complete.")
-
-    eia_df, electricity_df, total_consumption, avg_production = fetch_data_from_db()
-
-
-    visualize_data()
-
-
-    # Write calculations to a file
-
-
-
-if __name__ == "__main__":
-    # Fetched individual tables 
-    eia_df, electricity_df, total_consumption, avg_production = fetch_data_from_db()
-
-    #calculate_and_visualize(eia_df, electricity_df)
+    eia_df, electricity_df = fetch_data_from_db()
+    visualize_data(eia_df, electricity_df)
+    write_calculations(eia_df, electricity_df)
     print("Data processing and visualization complete.")
-
-# In your main code
-eia_df, electricity_df, total_consumption, avg_production = fetch_data_from_db()
-
-print("Data processing and visualization complete.")
-
 
 
 
