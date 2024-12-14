@@ -1,0 +1,20 @@
+Average Energy Production by Source:
+Coal: 80905.11
+Petroleum: 11175.34
+Natural_Gas: 155582.26
+Other_Fossil_Gas: 1050.28
+Nuclear: 65190.62
+Hydroelectric_Conventional: 31349.31
+Other_Renewable_Sources: 51524.09
+Hydroelectric_Pumped_Storage: 14334.99
+Other_Energy_Sources: 1636.27
+Utility_Total: 368351.69
+Estimated_Photovoltaic: 11852.35
+Total Electricity Consumption by Sector:
+Residential: 31599110152.00
+Commercial: 29855119392.00
+Industrial: 21845778820.00
+Transportation: 159361578.00
+Total: 83459369942.00
+Direct_Use: 1545434961.00
+Total_End_Use: 85004804903.00
