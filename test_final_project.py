@@ -67,52 +67,73 @@ def store_data(data, table_name):
     conn = sqlite3.connect('project_database.db')
     cur = conn.cursor()
 
-    #FIX THIS fOR ID/YEar
-    if table_name == 'eia_data':
+    try:
+        # Create Years table if it doesn't exist
         cur.execute('''
-        CREATE TABLE IF NOT EXISTS eia_data (
+        CREATE TABLE IF NOT EXISTS Years (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            Year INTEGER,
-            Coal REAL,
-            Petroleum REAL,
-            Natural_Gas REAL,
-            Other_Fossil_Gas REAL,
-            Nuclear REAL,
-            Hydroelectric_Conventional REAL,
-            Other_Renewable_Sources REAL,
-            Hydroelectric_Pumped_Storage REAL,
-            Other_Energy_Sources REAL,
-            Utility_Total REAL,
-            Estimated_Photovoltaic REAL
+            year INTEGER UNIQUE
         )''')
-        # Inserting data into eia_data table
-        cur.executemany('''
-        INSERT INTO eia_data (Year, Coal, Petroleum, Natural_Gas, Other_Fossil_Gas, Nuclear, 
-        Hydroelectric_Conventional, Other_Renewable_Sources, Hydroelectric_Pumped_Storage, 
-        Other_Energy_Sources, Utility_Total, Estimated_Photovoltaic)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', data)
 
-    elif table_name == 'electricity_data':
-        cur.execute('''
-        CREATE TABLE IF NOT EXISTS electricity_data (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            Year INTEGER,
-            Residential REAL,
-            Commercial REAL,
-            Industrial REAL,
-            Transportation REAL,
-            Total REAL,
-            Direct_Use REAL,
-            Total_End_Use REAL
-        )''')
-        # Inserting data into electricity_data table
-        cur.executemany('''
-        INSERT INTO electricity_data (Year, Residential, Commercial, Industrial, Transportation, 
-        Total, Direct_Use, Total_End_Use)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', data)
+        if table_name == 'eia_data':
+            cur.execute('''
+            CREATE TABLE IF NOT EXISTS eia_data (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                year_id INTEGER,
+                Coal REAL,
+                Petroleum REAL,
+                Natural_Gas REAL,
+                Other_Fossil_Gas REAL,
+                Nuclear REAL,
+                Hydroelectric_Conventional REAL,
+                Other_Renewable_Sources REAL,
+                Hydroelectric_Pumped_Storage REAL,
+                Other_Energy_Sources REAL,
+                Utility_Total REAL,
+                Estimated_Photovoltaic REAL,
+                FOREIGN KEY (year_id) REFERENCES Years(id)
+            )''')
+            for row in data:
+                year = int(row[0])
+                cur.execute('INSERT OR IGNORE INTO Years (year) VALUES (?)', (year,))
+                cur.execute('SELECT id FROM Years WHERE year = ?', (year,))
+                year_id = cur.fetchone()[0]
+                cur.execute('''
+                INSERT INTO eia_data (year_id, Coal, Petroleum, Natural_Gas, Other_Fossil_Gas, Nuclear,
+                Hydroelectric_Conventional, Other_Renewable_Sources, Hydroelectric_Pumped_Storage,
+                Other_Energy_Sources, Utility_Total, Estimated_Photovoltaic)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (year_id, *row[1:]))
 
-    conn.commit()
-    conn.close()
+        elif table_name == 'electricity_data':
+            cur.execute('''
+            CREATE TABLE IF NOT EXISTS electricity_data (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                year_id INTEGER,
+                Residential REAL,
+                Commercial REAL,
+                Industrial REAL,
+                Transportation REAL,
+                Total REAL,
+                Direct_Use REAL,
+                Total_End_Use REAL,
+                FOREIGN KEY (year_id) REFERENCES Years(id)
+            )''')
+            for row in data:
+                year = int(row[0])
+                cur.execute('INSERT OR IGNORE INTO Years (year) VALUES (?)', (year,))
+                cur.execute('SELECT id FROM Years WHERE year = ?', (year,))
+                year_id = cur.fetchone()[0]
+                cur.execute('''
+                INSERT INTO electricity_data (year_id, Residential, Commercial, Industrial, Transportation,
+                Total, Direct_Use, Total_End_Use)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', (year_id, *row[1:]))
+
+        conn.commit()
+    except sqlite3.Error as e:
+        print(f"An error occurred: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
 
 # DON"T TOUCH
 def fetch_data_from_db():
@@ -144,19 +165,23 @@ def write_calculations(eia_df, electricity_df):
 
     with open('calculations.txt', 'w') as f:
         f.write("Average Energy Production by Source:\n")
-        for index, value in avg_production.iteritems():
+        for index, value in avg_production.items():
             f.write(f"{index}: {value:.2f}\n")
 
         f.write("Total Electricity Consumption by Sector:\n")
-        for index, value in total_consumption.iteritems():
+        for index, value in total_consumption.items():
             f.write(f"{index}: {value:.2f}\n")
 
 def visualize_data(eia_df, electricity_df):
     conn = sqlite3.connect('project_database.db')
 
     # Fetch only relevant columns
-    eia_query = "SELECT Year, Petroleum FROM eia_data"
-    electricity_query = "SELECT Year, Residential, Commercial, Industrial, Transportation FROM electricity_data"
+    eia_query = """
+            SELECT y.year AS Year, e.Petroleum 
+            FROM eia_data e
+            JOIN Years y ON e.year_id = y.id
+            """
+    electricity_query = '''SELECT y.year AS Year, e.Residential, e.Commercial, e.Industrial, e.Transportation FROM electricity_data e JOIN Years y ON e.year_id = y.id'''
 
     # Data into Pandas DataFrames
     try:
@@ -318,7 +343,8 @@ def calculate_and_write_results():
     cur.execute("""
     SELECT w.date, w.temperature_2m_max, e.Residential
     FROM weather_data w
-    JOIN electricity_data e ON substr(w.date, 1, 4) = e.Year
+    JOIN Years y ON substr(w.date, 1, 4) = y.year
+    JOIN electricity_data e ON y.id = e.year_id
     LIMIT 10
     """)
     joined_data = cur.fetchall()
